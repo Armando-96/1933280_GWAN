@@ -1,0 +1,46 @@
+services:
+  # 1. IL SIMULATORE MARZIANO (Fornito dal professore)
+  simulator:
+    image: mars-iot-simulator:multiarch_v1
+    container_name: mars_simulator
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # 2. IL MESSAGE BROKER (RabbitMQ)
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: mars_broker
+    ports:
+      - "5672:5672"   # Porta AMQP per i microservizi
+      - "15672:15672" # Dashboard Web (http://localhost:15672)
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=admin
+    healthcheck:
+      # Questo check è vitale: dice agli altri container di aspettare che RabbitMQ sia pronto
+      test: ["CMD", "rabbitmq-diagnostics", "q"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 3. IL SERVIZIO DI INGESTIONE (Quello che abbiamo appena scritto)
+  ingestion:
+    build:
+      context: ./ingestion  # Cerca il Dockerfile in questa cartella
+    container_name: mars_ingestion
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=admin
+      - RABBITMQ_PASS=admin
+      # Grazie alla rete interna di Docker, il servizio chiama il simulatore usando il nome del container "simulator"
+      - SIMULATOR_URL=http://simulator:8080
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      simulator:
+        condition: service_started

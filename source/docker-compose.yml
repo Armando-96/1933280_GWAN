@@ -44,3 +44,18 @@ services:
         condition: service_healthy
       simulator:
         condition: service_started
+
+  # 4. LA DASHBOARD DI TEST (Frontend + Backend unificato per WebSocket)
+  dashboard:
+    build:
+      context: ./dashboard
+    container_name: mars_dashboard
+    ports:
+      - "8000:8000"
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=admin
+      - RABBITMQ_PASS=admin
+    depends_on:
+      rabbitmq:
+        condition: service_healthy

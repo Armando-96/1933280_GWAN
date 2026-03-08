@@ -75,7 +75,25 @@ services:
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
       - postgres_data:/var/lib/postgresql
 
+  # 6. Automation Engine
+  automation-engine:
+    build: ./automation_engine
+    container_name: mars_automation_engine
+    depends_on:
+      - db             
+      - rabbitmq
+      - simulator
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - DB_HOST=db     
+      - DB_NAME=mars       
+      - DB_USER=admin      
+      - DB_PASSWORD=password 
+      - SIMULATOR_URL=http://simulator:8080
+      - QUEUE_NAME=normalized_telemetry
+    restart: on-failure
 
 volumes:
   postgres_data:
+  pgdata:
   

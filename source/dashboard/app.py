@@ -1,9 +1,11 @@
 import os
 import json
 import asyncio
+from datetime import datetime, timezone
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 import aio_pika
+import httpx
 
 from fastapi.staticfiles import StaticFiles
 
@@ -11,6 +13,7 @@ RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "rabbitmq")
 RABBITMQ_USER = os.getenv("RABBITMQ_USER", "admin")
 RABBITMQ_PASS = os.getenv("RABBITMQ_PASS", "admin")
 EXCHANGE_NAME = "mars_events"
+SIMULATOR_URL = os.getenv("SIMULATOR_URL", "http://simulator:8080")
 
 app = FastAPI()
 
@@ -81,7 +84,46 @@ async def consume_rabbitmq():
             print(f"Errore connessione a RabbitMQ, riprovo tra 5s: {e}")
             await asyncio.sleep(5)
 
+async def poll_actuators():
+    """
+    Interroga il simulatore ogni 5 secondi per ottenere lo stato degli attuatori.
+    Formatta i dati come eventi unificati e li trasmette via WebSocket.
+    """
+    # Attendiamo che il simulatore sia potenzialmente pronto
+    await asyncio.sleep(5)
+    
+    async with httpx.AsyncClient(base_url=SIMULATOR_URL) as client:
+        while True:
+            try:
+                response = await client.get("/api/actuators", timeout=3)
+                if response.status_code == 200:
+                    data = response.json()
+                    # data format: {"actuators": {"actuator_name": "ON/OFF", ...}}
+                    actuators = data.get("actuators", {})
+                    
+                    for name, state in actuators.items():
+                        event = {
+                            "sensor_id": name,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "metric": "state",
+                            "value": state,
+                            "unit": "",
+                            "status": "ok",
+                            "source_protocol": "ACTUATORS"
+                        }
+                        await manager.broadcast(json.dumps(event))
+                    
+                    print(f"[x] Dashboard: Aggiornati lo stato di {len(actuators)} attuatori")
+                else:
+                    print(f"[!] Dashboard: Errore polling attuatori: {response.status_code}")
+            except Exception as e:
+                print(f"[!] Dashboard: Eccezione polling attuatori: {e}")
+            
+            await asyncio.sleep(5)
+
 @app.on_event("startup")
 async def startup_event():
     # Questo task in background leggerà di continuo da RabbitMQ e manderà alla Dashboard
     asyncio.create_task(consume_rabbitmq())
+    # Questo task interroga direttamente il simulatore per gli attuatori
+    asyncio.create_task(poll_actuators())

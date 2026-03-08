@@ -211,18 +211,26 @@
             // Macro-categorie richieste dall'utente
             const MACRO_GROUPS = {
                 "REST": { title: "SENSORS (Rest)", color: "#bb86fc" },
-                "TELEMETRY": { title: "TELEMETRY", color: "#03dac6" }
+                "TELEMETRY": { title: "TELEMETRY", color: "#03dac6" },
+                "ACTUATORS": { title: "ACTUATORS", color: "#ff9800" }
             };
 
             // Prepariamo la struttura dati: Macro -> SubCategory -> Sensors
             const organizedData = {
                 "REST": {},
-                "TELEMETRY": {}
+                "TELEMETRY": {},
+                "ACTUATORS": {}
             };
 
             for (const [sensorId, sensorData] of Object.entries(latestState)) {
+                // Se il protocollo è ACTUATORS, lo mettiamo nella macro-sezione Actuators
                 const proto = sensorData.source_protocol || "REST";
-                const cat = getCategoryForSensor(sensorId);
+                let cat = getCategoryForSensor(sensorId);
+                
+                // Se è un attuatore, mettiamolo in una sottocategoria fissa
+                if (proto === "ACTUATORS") {
+                    cat = "Habitat Infrastructure";
+                }
                 
                 if (!organizedData[proto]) organizedData[proto] = {};
                 if (!organizedData[proto][cat]) organizedData[proto][cat] = {};

@@ -135,23 +135,145 @@
             font-size: 0.75em;
             color: #666;
         }
+
+        /* Sistema di Notifiche (Toast) */
+        #notification-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .notification {
+            background-color: #323232;
+            color: #ffffff;
+            padding: 12px 20px;
+            border-radius: 4px;
+            border-left: 5px solid #ff9800;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            min-width: 250px;
+            animation: slideIn 0.3s ease-out;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        .notification.fade-out {
+            opacity: 0;
+            transform: translateX(100%);
+            transition: opacity 0.3s, transform 0.3s;
+        }
+
+        /* Toggle Switch Styling */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 20px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #555;
+            transition: .4s;
+            border-radius: 20px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 14px;
+            width: 14px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked+.slider {
+            background-color: #ff9800;
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(20px);
+        }
+
+        /* Filter Switch Styling in Headers */
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.8em;
+            font-weight: normal;
+        }
+
+        .filter-pill {
+            display: flex;
+            align-items: center;
+            background: rgba(255,255,255,0.05);
+            padding: 4px 10px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: background 0.3s;
+            user-select: none;
+        }
+
+        .filter-pill:hover {
+            background: rgba(255,255,255,0.1);
+        }
+
+        .filter-pill.active {
+            background: rgba(244, 67, 54, 0.2);
+            color: #f44336;
+            border: 1px solid rgba(244, 67, 54, 0.3);
+        }
     </style>
 </head>
 
 <body>
-    <h1>MARS IoT Dashboard</h1>
-    <div class="subtitle">Visualizzazione in tempo reale dello stato dei sensori</div>
-    <div id="status" class="connect-status">Connessione in corso...</div>
+    <header>
+        <h1>MARS Habitat IoT Dashboard</h1>
+        <div id="status" class="connect-status">Connecting to Server...</div>
+    </header>
 
     <div class="dashboard-container" id="dashboard">
         <!-- Le categorie verranno generate dinamicamente qui -->
     </div>
 
+    <div id="notification-container"></div>
+
     <script>
         // Mappa per tradurre e raggruppare i sensori in categorie logiche (Sensori fissi REST)
         const CATEGORIES = {
             "Solar Array": ["solar_array_solar_array"],
-            "Environment (Serra & Corridoi)": ["greenhouse_temperature", "entrance_humidity", "corridor_pressure"],
+            "Environment (Greenhouse & Corridors)": ["greenhouse_temperature", "entrance_humidity", "corridor_pressure"],
             "Air Quality": ["co2_hall", "air_quality_pm25", "air_quality_voc"],
             "Water & Hydroponics": ["hydroponic_ph", "water_tank_level"]
         };
@@ -164,21 +286,105 @@
             "Airlock & Exterior": ["airlock", "radiation"]
         };
 
+        // Traduzioni per le metriche comuni
+        const METRIC_LABELS = {
+            "temperature": "Temperature",
+            "humidity": "Humidity",
+            "co2": "CO2 Level",
+            "ph": "pH Level",
+            "level_pct": "Tank Level",
+            "pressure": "Pressure",
+            "pm1": "PM1.0",
+            "pm25": "PM2.5",
+            "pm10": "PM10",
+            "voc": "VOCs",
+            "power": "Power Generation",
+            "voltage": "Voltage",
+            "current": "Current",
+            "cycles": "Airlock Cycles",
+            "state": "Status",
+            "flow": "Coolant Flow"
+        };
+
         // Struttura dati per memorizzare l'ultimo stato (caching lato client)
         const latestState = {};
+
+        // Stato dei filtri per macro-categoria
+        const sectionFilters = {
+            "REST": false,
+            "TELEMETRY": false
+        };
 
         const ws = new WebSocket("ws://" + location.host + "/ws");
         const statusDiv = document.getElementById('status');
 
+        function toggleSectionFilter(proto) {
+            sectionFilters[proto] = !sectionFilters[proto];
+            renderDashboard();
+        }
+
         ws.onopen = function () {
-            statusDiv.innerText = "✅ Connesso in Real-Time al Broker (In attesa dati...)";
-            statusDiv.style.color = "#4caf50";
+            statusDiv.innerText = "● Server Connected";
+            statusDiv.style.color = "#03dac6";
         };
 
         ws.onclose = function () {
-            statusDiv.innerText = "❌ Disconnesso dal Server. Ricarica la pagina.";
+            statusDiv.innerText = "❌ Disconnected from Server. Please refresh.";
             statusDiv.style.color = "#f44336";
         };
+
+        function showNotification(message) {
+            const container = document.getElementById('notification-container');
+
+            // Se ci sono più di 5 notifiche, rimuovi la più vecchia
+            if (container.children.length >= 5) {
+                container.removeChild(container.firstChild);
+            }
+
+            const toast = document.createElement('div');
+            toast.className = 'notification';
+            toast.innerHTML = `<span>${message}</span>`;
+
+            container.appendChild(toast);
+
+            // Rimuovi dopo 3 secondi
+            setTimeout(() => {
+                toast.classList.add('fade-out');
+                setTimeout(() => {
+                    if (toast.parentNode === container) {
+                        container.removeChild(toast);
+                    }
+                }, 300);
+            }, 3000);
+        }
+
+        async function setActuatorState(name, newState) {
+            // Aggiornamento ottimistico della UI (User Story 11/12 fix)
+            if (latestState[name]) {
+                const oldVal = latestState[name].metrics["state"] ? latestState[name].metrics["state"].value : null;
+                if (oldVal !== newState) {
+                    latestState[name].metrics["state"].value = newState;
+                    latestState[name].timestamp = new Date().toISOString();
+                    renderDashboard(); // Ridisegna subito per snappezza
+                    showNotification(`Command sent: <b>${name.toUpperCase()}</b> to <b>${newState}</b>`);
+                }
+            }
+
+            try {
+                const response = await fetch(`/actuators/${name}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ state: newState })
+                });
+                const result = await response.json();
+                if (result.error) {
+                    showNotification(`❌ Error executing command: ${result.error}`);
+                    // Facoltativo: si potrebbe resettare lo stato in caso di errore
+                }
+            } catch (e) {
+                showNotification(`❌ Connection error: ${e.message}`);
+            }
+        }
 
         function getCategoryForSensor(sensorId) {
             // 1. Controllo esatto (Sensori REST statici)
@@ -206,60 +412,105 @@
 
         function renderDashboard() {
             const container = document.getElementById('dashboard');
-            container.innerHTML = ''; // Svuota
+            container.innerHTML = ''; // Clear
 
-            // Macro-categorie richieste dall'utente
+            // Macro-categories requested by the user
             const MACRO_GROUPS = {
                 "REST": { title: "SENSORS (Rest)", color: "#bb86fc" },
                 "TELEMETRY": { title: "TELEMETRY", color: "#03dac6" },
-                "ACTUATORS": { title: "ACTUATORS", color: "#ff9800" }
+                "ACTUATORS": { title: "ACTUATORS", color: "#ff9800" },
+                "OPERATIONS": { title: "OPERATIONS", color: "#e91e63" }
             };
 
-            // Prepariamo la struttura dati: Macro -> SubCategory -> Sensors
+            // Prepare data structure: Macro -> SubCategory -> Sensors
             const organizedData = {
                 "REST": {},
                 "TELEMETRY": {},
-                "ACTUATORS": {}
+                "ACTUATORS": {},
+                "OPERATIONS": {}
+            };
+
+            // Initialize Operations section with known manual controls
+            organizedData["OPERATIONS"]["Manual Controls"] = {
+                "habitat_heater": {
+                    source_protocol: "OPERATIONS",
+                    metrics: {
+                        "Manual Override": {
+                            value: latestState["habitat_heater"]?.metrics["state"]?.value || "OFF",
+                            unit: ""
+                        }
+                    }
+                }
             };
 
             for (const [sensorId, sensorData] of Object.entries(latestState)) {
-                // Se il protocollo è ACTUATORS, lo mettiamo nella macro-sezione Actuators
                 const proto = sensorData.source_protocol || "REST";
                 let cat = getCategoryForSensor(sensorId);
-                
-                // Se è un attuatore, mettiamolo in una sottocategoria fissa
+
                 if (proto === "ACTUATORS") {
                     cat = "Habitat Infrastructure";
                 }
-                
+
                 if (!organizedData[proto]) organizedData[proto] = {};
                 if (!organizedData[proto][cat]) organizedData[proto][cat] = {};
-                
+
                 organizedData[proto][cat][sensorId] = sensorData;
             }
 
-            // Rendere le Macro-Categorie
+            // Render Macro-Categories
             for (const [proto, macroInfo] of Object.entries(MACRO_GROUPS)) {
-                if (Object.keys(organizedData[proto]).length === 0) continue;
+                const protocolData = organizedData[proto];
+                if (!protocolData || Object.keys(protocolData).length === 0) continue;
 
-                // Container per la macro-categoria
+                // Container for the macro-category (full width wrapper)
                 const macroWrapper = document.createElement('div');
                 macroWrapper.style.width = '100%';
                 macroWrapper.style.marginBottom = '40px';
-                
-                const macroHeader = document.createElement('h2');
-                macroHeader.style.color = macroInfo.color;
-                macroHeader.style.borderBottom = `2px solid ${macroInfo.color}`;
-                macroHeader.style.paddingBottom = '10px';
-                macroHeader.style.marginLeft = '10px';
-                macroHeader.innerText = macroInfo.title;
+
+                // Macro Header with title and optional controls
+                const macroHeader = document.createElement('div');
+                macroHeader.className = 'macro-header';
+                macroHeader.style.backgroundColor = macroInfo.color;
+                macroHeader.style.display = 'flex';
+                macroHeader.style.justifyContent = 'space-between';
+                macroHeader.style.alignItems = 'center';
+                macroHeader.style.padding = '8px 15px';
+                macroHeader.style.borderRadius = '8px 8px 0 0';
+                macroHeader.style.color = 'white';
+                macroHeader.style.fontWeight = 'bold';
+
+                const titleSpan = document.createElement('span');
+                titleSpan.innerText = macroInfo.title;
+                macroHeader.appendChild(titleSpan);
+
+                // Add filter controls for SENSORS (REST) and TELEMETRY
+                if (proto === "REST" || proto === "TELEMETRY") {
+                    const controls = document.createElement('div');
+                    controls.className = 'header-controls';
+                    
+                    const isActive = sectionFilters[proto];
+                    controls.innerHTML = `
+                        <div class="filter-pill ${isActive ? 'active' : ''}" onclick="event.stopPropagation(); toggleSectionFilter('${proto}')">
+                            ${isActive ? '● Warning Only' : '○ All Status'}
+                        </div>
+                    `;
+                    macroHeader.appendChild(controls);
+                }
+
                 macroWrapper.appendChild(macroHeader);
 
+                // Container for the sub-categories (the actual dashboard-container grid)
                 const macroContainer = document.createElement('div');
                 macroContainer.className = 'dashboard-container';
+                macroContainer.style.border = `2px solid ${macroInfo.color}`;
+                macroContainer.style.borderTop = 'none';
+                macroContainer.style.borderRadius = '0 0 8px 8px';
+                macroContainer.style.padding = '20px';
                 macroWrapper.appendChild(macroContainer);
 
-                // Sotto-categorie all'interno della macro
+                let hasVisibleCardsInMacro = false;
+
+                // Sub-categories within the macro
                 for (const [category, sensors] of Object.entries(organizedData[proto])) {
                     const section = document.createElement('div');
                     section.className = 'category-section';
@@ -271,21 +522,33 @@
                     title.innerText = category;
                     section.appendChild(title);
 
-                    // Card sensori
+                    const grid = document.createElement('div');
+                    grid.className = 'sensor-grid';
+                    section.appendChild(grid);
+
+                    let cardsInCategory = 0;
                     for (const [sensorId, sensorObj] of Object.entries(sensors)) {
+                        // Warning Filter logic (User Story 18)
+                        if (sectionFilters[proto] && sensorObj.status !== "warning") {
+                            continue;
+                        }
+
                         if (Object.keys(sensorObj.metrics).length === 0) continue;
+
+                        cardsInCategory++;
+                        hasVisibleCardsInMacro = true;
 
                         const card = document.createElement('div');
                         card.className = 'sensor-card';
                         card.style.borderLeftColor = macroInfo.color;
+                        if (sensorObj.status === 'warning') card.classList.add('warning');
 
                         if (Date.now() - new Date(sensorObj.timestamp).getTime() < 1000) {
                             card.style.backgroundColor = '#3d3d3d';
                             setTimeout(() => card.style.backgroundColor = '', 500);
                         }
 
-                        const rawDate = new Date(sensorObj.timestamp);
-                        const timeStr = rawDate.toLocaleTimeString();
+                        const timeStr = new Date(sensorObj.timestamp).toLocaleTimeString();
 
                         let html = `
                             <div class="sensor-header">
@@ -300,32 +563,53 @@
                                 displayVal = displayVal.toFixed(2);
                             }
 
+                            let valueHtml = `${displayVal} <span style="font-size:0.75em; color:#888;">${metricData.unit || ''}</span>`;
+                            if (proto === "OPERATIONS") {
+                                const isChecked = displayVal === "ON" ? "checked" : "";
+                                valueHtml = `
+                                    <label class="switch">
+                                        <input type="checkbox" ${isChecked} onchange="setActuatorState('${sensorId}', this.checked ? 'ON' : 'OFF')">
+                                        <span class="slider"></span>
+                                    </label>
+                                    <span style="margin-left:8px; font-weight:bold; color:${displayVal === 'ON' ? '#ff9800' : '#888'}">${displayVal}</span>
+                                `;
+                            }
+
                             html += `
                                 <div class="metric-row">
-                                    <span class="metric-name">${metricName}</span>
-                                    <span class="metric-value">${displayVal} <span style="font-size:0.75em; color:#888;">${metricData.unit || ''}</span></span>
+                                    <span class="metric-name">${METRIC_LABELS[metricName.toLowerCase()] || metricName}</span>
+                                    <span class="metric-value">${valueHtml}</span>
                                 </div>
                             `;
                         }
 
                         html += `
                             <div class="footer-info">
-                                <span>Ultimo agg: ${timeStr}</span>
+                                <span>last update: ${timeStr}</span>
                             </div>
                         `;
 
                         card.innerHTML = html;
-                        section.appendChild(card);
+                        grid.appendChild(card);
                     }
-                    
-                    if (section.querySelectorAll('.sensor-card').length > 0) {
+
+                    if (cardsInCategory > 0) {
                         macroContainer.appendChild(section);
                     }
                 }
-                
-                if (macroContainer.children.length > 0) {
-                    container.appendChild(macroWrapper);
+
+                // User Story 18 Fix: Always show the section if it has data, but notify if filtered out everything
+                if (sectionFilters[proto] && !hasVisibleCardsInMacro) {
+                    const emptyMsg = document.createElement('div');
+                    emptyMsg.style.padding = '20px';
+                    emptyMsg.style.textAlign = 'center';
+                    emptyMsg.style.color = '#888';
+                    emptyMsg.style.fontStyle = 'italic';
+                    emptyMsg.innerText = 'No sensors currently in WARNING status.';
+                    macroContainer.appendChild(emptyMsg);
                 }
+
+                container.appendChild(macroWrapper);
             }
         }
 
@@ -356,6 +640,14 @@
                 // Aggiorna/Aggiungi questa specifica metrica
                 // (Ricorda che l'ingestion emette eventi separati per ogni metrica dello stesso sensore)
                 if (data.metric) {
+                    // Logica Notifiche Actuators (User Story 12)
+                    if (data.source_protocol === "ACTUATORS" && data.metric === "state") {
+                        const oldVal = latestState[sid].metrics["state"] ? latestState[sid].metrics["state"].value : null;
+                        if (oldVal !== null && oldVal !== data.value) {
+                            showNotification(`Actuator <b>${sid.toUpperCase()}</b> changed to <b>${data.value}</b>`);
+                        }
+                    }
+
                     latestState[sid].metrics[data.metric] = {
                         value: data.value,
                         unit: data.unit

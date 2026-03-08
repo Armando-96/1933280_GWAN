@@ -5,7 +5,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copiamo i file Python necessari per il backend
 COPY app.py .
+COPY rules_management.py .
+
+# Copiamo la cartella con i file del frontend (HTML/CSS/JS)
 COPY static ./static
 
 ENV PYTHONUNBUFFERED=1

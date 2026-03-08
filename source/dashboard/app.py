@@ -190,17 +190,21 @@ async def poll_actuators():
 
 async def poll_rules_periodically():
     """
-    Interroga periodicamente receive_rules_events() ogni 5 secondi
+    Interroga periodicamente receive_rules_events()
     per ottenere l'elenco aggiornato delle regole e trasmetterlo alla dashboard.
     """
     while True:
         try:
+            # receive_rules_events ora ha un timeout interno di 10s
             rules = await receive_rules_events()
             if rules is not None:
                 await manager.broadcast(json.dumps({"type": "rules_update", "rules": rules}))
+            else:
+                # Se non arrivano regole (timeout o errore), aspettiamo 5s prima di riprovare
+                await asyncio.sleep(5)
         except Exception as e:
             print(f"Errore poll_rules_periodically: {e}")
-        await asyncio.sleep(5)
+            await asyncio.sleep(5)
 
 @app.on_event("startup")
 async def startup_event():

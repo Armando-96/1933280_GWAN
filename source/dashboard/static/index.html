@@ -64,6 +64,14 @@
             margin-bottom: 10px;
             border-left: 4px solid #bb86fc;
             transition: background-color 0.3s;
+            position: relative;
+        }
+
+        .sensor-protocol {
+            font-size: 0.85em;
+            text-transform: uppercase;
+            color: #888;
+            font-weight: bold;
         }
 
         .sensor-header {
@@ -813,6 +821,7 @@
                         }
 
                         const timeStr = new Date(sensorObj.timestamp).toLocaleTimeString();
+                        const protocolLabel = sensorObj.source_protocol || 'TELEMETRY';
                         let html = `
                             <div class="sensor-header">
                                 <span class="sensor-name">${sensorId.replace(/_/g, ' ').toUpperCase()}</span>
@@ -844,7 +853,7 @@
                             `;
                         }
 
-                        html += `<div class="footer-info"><span>last update: ${timeStr}</span></div>`;
+                        html += `<div class="footer-info"><span class="sensor-protocol">${protocolLabel}</span><span>last update: ${timeStr}</span></div>`;
                         card.innerHTML = html;
                         grid.appendChild(card);
                     }

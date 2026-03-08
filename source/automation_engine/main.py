@@ -261,12 +261,14 @@ async def rules_broadcast_loop(db_conn):
             await asyncio.sleep(5)
 
 
-def start_rules_listener_thread(db_conn):
+def start_rules_listener_thread():
     def _run():
+        conn = connect_db() # Separate connection for this thread
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.create_task(rules_management_listener(db_conn))
-        loop.create_task(rules_broadcast_loop(db_conn))
+        loop.create_task(rules_management_listener(conn))
+        loop.create_task(rules_broadcast_loop(conn))
+        print("🚀 [RULES MGR] Tasks scheduled in loop.")
         loop.run_forever()
 
     t = threading.Thread(target=_run, daemon=True, name="rules-mgr-listener")
@@ -282,7 +284,7 @@ def main():
     db_conn = connect_db()
 
     # Start rules-management listener in background
-    start_rules_listener_thread(db_conn)
+    start_rules_listener_thread()
 
     # Connect to RabbitMQ for telemetry consumption
     while True:

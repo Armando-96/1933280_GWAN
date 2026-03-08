@@ -17,6 +17,11 @@ SIMULATOR_URL = os.getenv("SIMULATOR_URL", "http://simulator:8080")
 
 app = FastAPI()
 
+# Pydantic model for actuator control
+from pydantic import BaseModel
+class ActuatorStateRequest(BaseModel):
+    state: str  # "ON" or "OFF"
+
 # app.mount("/", ... removed from here to fix WS conflict
 class ConnectionManager:
     def __init__(self):
@@ -47,6 +52,23 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+
+@app.post("/actuators/{name}")
+async def proxy_actuator_control(name: str, req: ActuatorStateRequest):
+    """
+    Agisce come proxy per inviare comandi al simulatore.
+    """
+    async with httpx.AsyncClient() as client:
+        try:
+            url = f"{SIMULATOR_URL}/api/actuators/{name}"
+            response = await client.post(url, json={"state": req.state}, timeout=5)
+            if response.status_code == 200:
+                print(f"[x] Comando inviato con successo a {name}: {req.state}")
+                return response.json()
+            else:
+                return {"error": f"Simulatore ha risposto con {response.status_code}", "detail": response.text}
+        except Exception as e:
+            return {"error": "Impossibile contattare il simulatore", "detail": str(e)}
 
 # Montiamo la cartella static DOPO aver definito le altre rotte
 # altrimenti FastAPI intercetta la richiesta WebSocket e pensa sia una richiesta HTTP statica.

@@ -147,17 +147,10 @@
         <!-- Le categorie verranno generate dinamicamente qui -->
     </div>
 
-    <!-- Nuova sezione dedicata ai log RAW del pannello solare -->
-    <div style="max-width: 1400px; margin: 30px auto; padding: 15px; background: #1e1e1e; border-radius: 8px; border: 1px solid #333;">
-        <h2 style="color: #03dac6; border-bottom: 1px solid #333; margin-top: 0; padding-bottom: 10px;">Solar Array JSON Stream</h2>
-        <div id="solar-stream" style="font-family: monospace; background: #000; padding: 10px; height: 300px; overflow-y: scroll; font-size: 0.9em; color: #a5d6ff; border-radius: 4px;">
-            <!-- I json verranno appesi qui -->
-        </div>
-    </div>
-
     <script>
         // Mappa per tradurre e raggruppare i sensori in categorie logiche (Sensori fissi REST)
         const CATEGORIES = {
+            "Solar Array": ["solar_array_solar_array"],
             "Environment (Serra & Corridoi)": ["greenhouse_temperature", "entrance_humidity", "corridor_pressure"],
             "Air Quality": ["co2_hall", "air_quality_pm25", "air_quality_voc"],
             "Water & Hydroponics": ["hydroponic_ph", "water_tank_level"]
@@ -215,82 +208,115 @@
             const container = document.getElementById('dashboard');
             container.innerHTML = ''; // Svuota
 
-            // Raggruppa i dati che abbiamo in base alla categoria
-            const dataByCategory = {};
+            // Macro-categorie richieste dall'utente
+            const MACRO_GROUPS = {
+                "REST": { title: "SENSORS (Rest)", color: "#bb86fc" },
+                "TELEMETRY": { title: "TELEMETRY", color: "#03dac6" }
+            };
+
+            // Prepariamo la struttura dati: Macro -> SubCategory -> Sensors
+            const organizedData = {
+                "REST": {},
+                "TELEMETRY": {}
+            };
+
             for (const [sensorId, sensorData] of Object.entries(latestState)) {
+                const proto = sensorData.source_protocol || "REST";
                 const cat = getCategoryForSensor(sensorId);
-                if (!dataByCategory[cat]) dataByCategory[cat] = {};
-                dataByCategory[cat][sensorId] = sensorData;
+                
+                if (!organizedData[proto]) organizedData[proto] = {};
+                if (!organizedData[proto][cat]) organizedData[proto][cat] = {};
+                
+                organizedData[proto][cat][sensorId] = sensorData;
             }
 
-            // Genera l'HTML per ogni categoria
-            for (const [category, sensors] of Object.entries(dataByCategory)) {
-                const section = document.createElement('div');
-                section.className = 'category-section';
+            // Rendere le Macro-Categorie
+            for (const [proto, macroInfo] of Object.entries(MACRO_GROUPS)) {
+                if (Object.keys(organizedData[proto]).length === 0) continue;
 
-                const title = document.createElement('h2');
-                title.className = 'category-title';
-                title.innerText = category;
-                section.appendChild(title);
+                // Container per la macro-categoria
+                const macroWrapper = document.createElement('div');
+                macroWrapper.style.width = '100%';
+                macroWrapper.style.marginBottom = '40px';
+                
+                const macroHeader = document.createElement('h2');
+                macroHeader.style.color = macroInfo.color;
+                macroHeader.style.borderBottom = `2px solid ${macroInfo.color}`;
+                macroHeader.style.paddingBottom = '10px';
+                macroHeader.style.marginLeft = '10px';
+                macroHeader.innerText = macroInfo.title;
+                macroWrapper.appendChild(macroHeader);
 
-                // Aggiungi i sensori di questa categoria
-                for (const [sensorId, sensorObj] of Object.entries(sensors)) {
-                    // Non mostrare card che non hanno ancora metriche valide da visualizzare
-                    if (Object.keys(sensorObj.metrics).length === 0) {
-                        continue;
-                    }
+                const macroContainer = document.createElement('div');
+                macroContainer.className = 'dashboard-container';
+                macroWrapper.appendChild(macroContainer);
 
-                    const card = document.createElement('div');
-                    card.className = 'sensor-card';
+                // Sotto-categorie all'interno della macro
+                for (const [category, sensors] of Object.entries(organizedData[proto])) {
+                    const section = document.createElement('div');
+                    section.className = 'category-section';
+                    section.style.borderColor = macroInfo.color;
 
-                    // Per far lampeggiare brevemente la card quando si aggiorna
-                    if (Date.now() - new Date(sensorObj.timestamp).getTime() < 1000) {
-                        card.style.backgroundColor = '#3d3d3d';
-                        setTimeout(() => card.style.backgroundColor = '', 500);
-                    }
+                    const title = document.createElement('h3');
+                    title.className = 'category-title';
+                    title.style.color = macroInfo.color;
+                    title.innerText = category;
+                    section.appendChild(title);
 
-                    // Intestazione Card (Nome + Status)
-                    const rawDate = new Date(sensorObj.timestamp);
-                    const timeStr = rawDate.toLocaleTimeString();
+                    // Card sensori
+                    for (const [sensorId, sensorObj] of Object.entries(sensors)) {
+                        if (Object.keys(sensorObj.metrics).length === 0) continue;
 
-                    let html = `
+                        const card = document.createElement('div');
+                        card.className = 'sensor-card';
+                        card.style.borderLeftColor = macroInfo.color;
+
+                        if (Date.now() - new Date(sensorObj.timestamp).getTime() < 1000) {
+                            card.style.backgroundColor = '#3d3d3d';
+                            setTimeout(() => card.style.backgroundColor = '', 500);
+                        }
+
+                        const rawDate = new Date(sensorObj.timestamp);
+                        const timeStr = rawDate.toLocaleTimeString();
+
+                        let html = `
                             <div class="sensor-header">
                                 <span class="sensor-name">${sensorId.replace(/_/g, ' ').toUpperCase()}</span>
                                 <span class="sensor-status ${getStatusClass(sensorObj.status)}">${sensorObj.status || 'OK'}</span>
                             </div>
                         `;
 
-                    // Cicla le metriche per questo sensore
-                    for (const [metricName, metricData] of Object.entries(sensorObj.metrics).sort()) {
-                        // Arrotonda il valore a 2 decimali se è un numero
-                        let displayVal = metricData.value;
-                        if (typeof displayVal === 'number' && !Number.isInteger(displayVal)) {
-                            displayVal = displayVal.toFixed(2);
+                        for (const [metricName, metricData] of Object.entries(sensorObj.metrics).sort()) {
+                            let displayVal = metricData.value;
+                            if (typeof displayVal === 'number' && !Number.isInteger(displayVal)) {
+                                displayVal = displayVal.toFixed(2);
+                            }
+
+                            html += `
+                                <div class="metric-row">
+                                    <span class="metric-name">${metricName}</span>
+                                    <span class="metric-value">${displayVal} <span style="font-size:0.75em; color:#888;">${metricData.unit || ''}</span></span>
+                                </div>
+                            `;
                         }
 
                         html += `
-                                <div class="metric-row">
-                                    <span class="metric-name">${metricName}</span>
-                                    <span class="metric-value">${displayVal} <span style="font-size:0.7em; color:#888;">${metricData.unit || ''}</span></span>
-                                </div>
-                            `;
-                    }
-
-                    // Footer card (Protocollo + Orario)
-                    html += `
                             <div class="footer-info">
-                                <span>Proto: ${sensorObj.source_protocol}</span>
                                 <span>Ultimo agg: ${timeStr}</span>
                             </div>
                         `;
 
-                    card.innerHTML = html;
-                    section.appendChild(card);
+                        card.innerHTML = html;
+                        section.appendChild(card);
+                    }
+                    
+                    if (section.querySelectorAll('.sensor-card').length > 0) {
+                        macroContainer.appendChild(section);
+                    }
                 }
                 
-                // Se la sezione non ha nessun sensore stampabile, non aggiungerla nemmeno
-                if (section.querySelectorAll('.sensor-card').length > 0) {
-                    container.appendChild(section);
+                if (macroContainer.children.length > 0) {
+                    container.appendChild(macroWrapper);
                 }
             }
         }
@@ -300,20 +326,11 @@
                 const data = JSON.parse(event.data);
                 const sid = data.sensor_id;
 
-                // User Story 6 Alternative: Mostra RAW JSON solo per solar_array_solar_array in un box separato
+                // Filtro per visualizzare solo le metriche richieste nella Use Story per il Solar Array
                 if (sid === "solar_array_solar_array") {
-                    const streamBox = document.getElementById('solar-stream');
-                    const div = document.createElement('div');
-                    div.style.marginBottom = '5px';
-                    div.style.borderBottom = '1px dashed #333';
-                    div.style.paddingBottom = '5px';
-                    div.innerText = event.data; // Stampa il JSON grezzo
-                    
-                    streamBox.appendChild(div);
-                    // Scorri automaticamente in basso
-                    streamBox.scrollTop = streamBox.scrollHeight;
-                    
-                    return; // Interrompi qui, NON salvare lo stato e NON disegnare card
+                    if (!["kW", "V", "A"].includes(data.unit)) {
+                        return; // Scarta le metriche come kWh, stato, ecc.
+                    }
                 }
 
                 // Se non abbiamo ancora questo sensore, inizializzalo

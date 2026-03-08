@@ -2,13 +2,13 @@ import os
 import json
 import asyncio
 from datetime import datetime, timezone
-from time import sleep
+from pydantic import BaseModel
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 import aio_pika
 import httpx
-from rules_manager import send_delete_rule, send_insert_rule, receive_rules_events
+from rules_manager import send_delete_rule, send_insert_rule, receive_rules_stream, receive_rules_events
 
 from fastapi.staticfiles import StaticFiles
 
@@ -20,10 +20,16 @@ SIMULATOR_URL = os.getenv("SIMULATOR_URL", "http://simulator:8080")
 
 app = FastAPI()
 
-# Pydantic model for actuator control
-from pydantic import BaseModel
+# Pydantic models
 class ActuatorStateRequest(BaseModel):
     state: str  # "ON" or "OFF"
+
+class RuleRequest(BaseModel):
+    sensor_name: str
+    operator: str
+    value: float
+    actuator_name: str
+    on_off: int # 1 for ON, 0 for OFF
 
 # app.mount("/", ... removed from here to fix WS conflict
 class ConnectionManager:
@@ -73,9 +79,42 @@ async def proxy_actuator_control(name: str, req: ActuatorStateRequest):
         except Exception as e:
             return {"error": "Impossibile contattare il simulatore", "detail": str(e)}
 
+@app.post("/rules")
+async def create_rule(req: RuleRequest):
+    try:
+        await send_insert_rule(req.sensor_name, req.operator, req.value, req.actuator_name, req.on_off)
+        return {"status": "Rule deployment request sent"}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.delete("/rules/{rule_id}")
+async def delete_rule(rule_id: int):
+    try:
+        await send_delete_rule(rule_id)
+        return {"status": "Rule deletion request sent"}
+    except Exception as e:
+        return {"error": str(e)}
+
 # Montiamo la cartella static DOPO aver definito le altre rotte
 # altrimenti FastAPI intercetta la richiesta WebSocket e pensa sia una richiesta HTTP statica.
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
+
+async def consume_rules_events():
+    """
+    Ascolta gli eventi dall'exchange rules_management in streaming e li trasmette alla dashboard.
+    """
+    while True:
+        try:
+            async for data in receive_rules_stream():
+                if data == "online" or data == "offline":
+                    event = {"type": "broker_status", "source": "rules", "status": data}
+                else:
+                    event = {"type": "rules_update", "rules": data}
+                await manager.broadcast(json.dumps(event))
+        except Exception as e:
+            print(f"Errore consume_rules_events: {e}")
+            await manager.broadcast(json.dumps({"type": "broker_status", "source": "rules", "status": "offline"}))
+            await asyncio.sleep(5)
 
 async def consume_rabbitmq():
     # Aspettiamo qualche secondo per assicurarci che RabbitMQ sia pronto al boot
@@ -89,24 +128,27 @@ async def consume_rabbitmq():
             )
             async with connection:
                 print("Connesso a RabbitMQ! In attesa di messaggi...")
+                await manager.broadcast(json.dumps({"type": "broker_status", "source": "sensors", "status": "online"}))
                 channel = await connection.channel()
                 
-                # Ci colleghiamo all'Exchange che usa ingestion
-                exchange = await channel.declare_exchange(EXCHANGE_NAME, aio_pika.ExchangeType.FANOUT)
-                
-                # Creiamo una coda esclusiva invisibile: serve solo per ricevere questa copia di eventi
+                exchange = await channel.declare_exchange(EXCHANGE_NAME, aio_pika.ExchangeType.FANOUT, durable=False)
                 queue = await channel.declare_queue(exclusive=True)
                 await queue.bind(exchange)
                 
                 async with queue.iterator() as queue_iter:
                     async for message in queue_iter:
                         async with message.process():
-                            payload = message.body.decode()
-                            # Spariamo subito il messaggio normalizzato al Frontend HTML!
-                            await manager.broadcast(payload)
+                            try:
+                                data = json.loads(message.body.decode())
+                                if "source_protocol" not in data:
+                                    data["source_protocol"] = "TELEMETRY"
+                                await manager.broadcast(json.dumps(data))
+                            except Exception as e:
+                                print(f"Errore broadcast messaggio RabbitMQ: {e}")
                             
         except Exception as e:
-            print(f"Errore connessione a RabbitMQ, riprovo tra 5s: {e}")
+            print(f"Errore connessione a RabbitMQ (sensors), riprovo tra 5s: {e}")
+            await manager.broadcast(json.dumps({"type": "broker_status", "source": "sensors", "status": "offline"}))
             await asyncio.sleep(5)
 
 async def poll_actuators():
@@ -146,12 +188,29 @@ async def poll_actuators():
             
             await asyncio.sleep(5)
 
+async def poll_rules_periodically():
+    """
+    Interroga periodicamente receive_rules_events() ogni 5 secondi
+    per ottenere l'elenco aggiornato delle regole e trasmetterlo alla dashboard.
+    """
+    while True:
+        try:
+            rules = await receive_rules_events()
+            if rules is not None:
+                await manager.broadcast(json.dumps({"type": "rules_update", "rules": rules}))
+        except Exception as e:
+            print(f"Errore poll_rules_periodically: {e}")
+        await asyncio.sleep(5)
+
 @app.on_event("startup")
 async def startup_event():
     # Questo task in background leggerà di continuo da RabbitMQ e manderà alla Dashboard
     asyncio.create_task(consume_rabbitmq())
     # Questo task interroga direttamente il simulatore per gli attuatori
     asyncio.create_task(poll_actuators())
+    # Questo task ascolta gli aggiornamenti delle regole in streaming (opzionale se usiamo polling)
+    # Tuttavia, l'utente ha chiesto esplicitamente polling ogni 5s usando receive_rules_events
+    asyncio.create_task(poll_rules_periodically())
 
     # ESEMPI DI CHIAMATE rules_manager.py
     # await send_delete_rule(55)

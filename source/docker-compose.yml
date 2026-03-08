@@ -85,6 +85,8 @@ services:
       - simulator
     environment:
       - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=admin         
+      - RABBITMQ_PASS=admin
       - DB_HOST=db     
       - DB_NAME=mars       
       - DB_USER=admin      

@@ -54,7 +54,7 @@ CREATE TABLE rules (
 
 --TEST INSERTS
 INSERT INTO rules (sensor_name, operator, value, actuator_name, On_off) VALUES
-    ('greenhouse_temperature', '>', 25.0, 'cooling_fan', 1),    
+    ('greenhouse_temperature', '>', 20.0, 'cooling_fan', 1),    
     ('entrance_humidity', '<', 40, 'entrance_humidifier', 1),   
     ('corridor_pressure', '>', 100, 'hall_ventilation', 1),      
     ('greenhouse_temperature', '<', 18, 'habitat_heater', 1);   

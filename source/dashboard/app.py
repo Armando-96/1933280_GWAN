@@ -2,6 +2,8 @@ import os
 import json
 import asyncio
 from datetime import datetime, timezone
+from time import sleep
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 import aio_pika
@@ -150,3 +152,8 @@ async def startup_event():
     asyncio.create_task(consume_rabbitmq())
     # Questo task interroga direttamente il simulatore per gli attuatori
     asyncio.create_task(poll_actuators())
+
+    # ESEMPI DI CHIAMATE rules_manager.py
+    # await send_delete_rule(55)
+    # await send_insert_rule("sensore_11", "<", 55.0, "attuatore_2", 1)
+

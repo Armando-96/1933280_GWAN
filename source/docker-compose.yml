@@ -1,0 +1,61 @@
+services:
+  # 1. IL SIMULATORE MARZIANO (Fornito dal professore)
+  simulator:
+    image: mars-iot-simulator:multiarch_v1
+    container_name: mars_simulator
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # 2. IL MESSAGE BROKER (RabbitMQ)
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: mars_broker
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=admin
+    healthcheck:
+      # Sostituiamo "q" con "ping" (molto più sicuro)
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 3. IL SERVIZIO DI INGESTIONE (Quello che abbiamo appena scritto)
+  ingestion:
+    build:
+      context: ./ingestion  # Cerca il Dockerfile in questa cartella
+    container_name: mars_ingestion
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=admin
+      - RABBITMQ_PASS=admin
+      # Grazie alla rete interna di Docker, il servizio chiama il simulatore usando il nome del container "simulator"
+      - SIMULATOR_URL=http://simulator:8080
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      simulator:
+        condition: service_started
+
+  # 4. LA DASHBOARD DI TEST (Frontend + Backend unificato per WebSocket)
+  dashboard:
+    build:
+      context: ./dashboard
+    container_name: mars_dashboard
+    ports:
+      - "8000:8000"
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_USER=admin
+      - RABBITMQ_PASS=admin
+    depends_on:
+      rabbitmq:
+        condition: service_healthy

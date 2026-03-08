@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Mars IoT Dashboard</title>
+        <style>
+            body { 
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+                margin: 0; padding: 20px; 
+                background-color: #121212; color: #ffffff; 
+            }
+            h1 { color: #bb86fc; text-align: center; margin-bottom: 5px; }
+            .subtitle { text-align: center; color: #aaaaaa; margin-bottom: 30px; }
+            .connect-status { color: #ffeb3b; text-align: center; margin-bottom: 20px; font-weight: bold; }
+            
+            .dashboard-container {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 20px;
+                justify-content: center;
+                max-width: 1400px;
+                margin: 0 auto;
+            }
+            
+            .category-section {
+                flex: 1 1 400px; /* Minimo 400px, poi si espande */
+                background: #1e1e1e;
+                border-radius: 8px;
+                border: 1px solid #333;
+                padding: 15px;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            }
+            
+            .category-title {
+                color: #03dac6;
+                border-bottom: 1px solid #333;
+                padding-bottom: 10px;
+                margin-top: 0;
+            }
+            
+            .sensor-card {
+                background: #2c2c2c;
+                border-radius: 6px;
+                padding: 12px;
+                margin-bottom: 10px;
+                border-left: 4px solid #bb86fc;
+                transition: background-color 0.3s;
+            }
+            
+            .sensor-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-bottom: 8px;
+            }
+            
+            .sensor-name { font-weight: bold; color: #ffffff; font-size: 1.1em; }
+            .sensor-status { 
+                padding: 3px 8px; 
+                border-radius: 4px; 
+                font-size: 0.8em; 
+                font-weight: bold;
+                text-transform: uppercase;
+            }
+            .status-ok { background-color: rgba(76, 175, 80, 0.2); color: #4caf50; border: 1px solid #4caf50; }
+            .status-warning { background-color: rgba(255, 152, 0, 0.2); color: #ff9800; border: 1px solid #ff9800; }
+            .status-error { background-color: rgba(244, 67, 54, 0.2); color: #f44336; border: 1px solid #f44336; }
+            
+            .metric-row {
+                display: flex;
+                justify-content: space-between;
+                font-family: monospace;
+                margin: 4px 0;
+                padding: 4px 0;
+                border-bottom: 1px dashed #444;
+            }
+            .metric-row:last-child { border-bottom: none; }
+            
+            .metric-name { color: #aaaaaa; }
+            .metric-value { color: #cf6679; font-weight: bold; font-size: 1.1em; }
+            
+            .footer-info {
+                display: flex;
+                justify-content: space-between;
+                margin-top: 8px;
+                font-size: 0.75em;
+                color: #666;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>MARS IoT Dashboard</h1>
+        <div class="subtitle">Visualizzazione in tempo reale dello stato dei sensori</div>
+        <div id="status" class="connect-status">Connessione in corso...</div>
+        
+        <div class="dashboard-container" id="dashboard">
+            <!-- Le categorie verranno generate dinamicamente qui -->
+        </div>
+
+        <script>
+            // Mappa per tradurre e raggruppare i sensori in categorie logiche
+            const CATEGORIES = {
+                "Environment (Serra & Corridoi)": ["greenhouse_temperature", "entrance_humidity", "corridor_pressure"],
+                "Air Quality": ["co2_hall", "air_quality_pm25", "air_quality_voc"],
+                "Water & Hydroponics": ["hydroponic_ph", "water_tank_level"]
+            };
+
+            // Struttura dati per memorizzare l'ultimo stato (caching lato client)
+            const latestState = {};
+
+            const ws = new WebSocket("ws://" + location.host + "/ws");
+            const statusDiv = document.getElementById('status');
+            
+            ws.onopen = function() {
+                statusDiv.innerText = "✅ Connesso in Real-Time al Broker (In attesa dati...)";
+                statusDiv.style.color = "#4caf50";
+            };
+            
+            ws.onclose = function() {
+                statusDiv.innerText = "❌ Disconnesso dal Server. Ricarica la pagina.";
+                statusDiv.style.color = "#f44336";
+            };
+            
+            function getCategoryForSensor(sensorId) {
+                for (const [category, sensors] of Object.entries(CATEGORIES)) {
+                    if (sensors.includes(sensorId)) return category;
+                }
+                return "Other Sensors";
+            }
+
+            function getStatusClass(status) {
+                if (!status) return 'status-ok';
+                const s = status.toLowerCase();
+                if (s === 'ok') return 'status-ok';
+                if (s === 'error' || s === 'critical') return 'status-error';
+                return 'status-warning';
+            }
+
+            function renderDashboard() {
+                const container = document.getElementById('dashboard');
+                container.innerHTML = ''; // Svuota
+
+                // Raggruppa i dati che abbiamo in base alla categoria
+                const dataByCategory = {};
+                for (const [sensorId, sensorData] of Object.entries(latestState)) {
+                    const cat = getCategoryForSensor(sensorId);
+                    if (!dataByCategory[cat]) dataByCategory[cat] = {};
+                    dataByCategory[cat][sensorId] = sensorData;
+                }
+
+                // Genera l'HTML per ogni categoria
+                for (const [category, sensors] of Object.entries(dataByCategory)) {
+                    const section = document.createElement('div');
+                    section.className = 'category-section';
+                    
+                    const title = document.createElement('h2');
+                    title.className = 'category-title';
+                    title.innerText = category;
+                    section.appendChild(title);
+
+                    // Aggiungi i sensori di questa categoria
+                    for (const [sensorId, sensorObj] of Object.entries(sensors)) {
+                        const card = document.createElement('div');
+                        card.className = 'sensor-card';
+                        
+                        // Per far lampeggiare brevemente la card quando si aggiorna
+                        if (Date.now() - new Date(sensorObj.timestamp).getTime() < 1000) {
+                            card.style.backgroundColor = '#3d3d3d';
+                            setTimeout(() => card.style.backgroundColor = '', 500);
+                        }
+
+                        // Intestazione Card (Nome + Status)
+                        const rawDate = new Date(sensorObj.timestamp);
+                        const timeStr = rawDate.toLocaleTimeString();
+                        
+                        let html = `
+                            <div class="sensor-header">
+                                <span class="sensor-name">${sensorId.replace(/_/g, ' ').toUpperCase()}</span>
+                                <span class="sensor-status ${getStatusClass(sensorObj.status)}">${sensorObj.status || 'OK'}</span>
+                            </div>
+                        `;
+
+                        // Cicla le metriche per questo sensore
+                        // Esempio: un sensore PM2.5 avrà metriche "pm1", "pm25", "pm10"
+                        for (const [metricName, metricData] of Object.entries(sensorObj.metrics).sort()) {
+                            // Arrotonda il valore a 2 decimali se è un numero
+                            let displayVal = metricData.value;
+                            if (typeof displayVal === 'number' && !Number.isInteger(displayVal)) {
+                                displayVal = displayVal.toFixed(2);
+                            }
+                            
+                            html += `
+                                <div class="metric-row">
+                                    <span class="metric-name">${metricName}</span>
+                                    <span class="metric-value">${displayVal} <span style="font-size:0.7em; color:#888;">${metricData.unit || ''}</span></span>
+                                </div>
+                            `;
+                        }
+
+                        // Footer card (Protocollo + Orario)
+                        html += `
+                            <div class="footer-info">
+                                <span>Proto: ${sensorObj.source_protocol}</span>
+                                <span>Ultimo agg: ${timeStr}</span>
+                            </div>
+                        `;
+
+                        card.innerHTML = html;
+                        section.appendChild(card);
+                    }
+                    container.appendChild(section);
+                }
+            }
+
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    const sid = data.sensor_id;
+                    
+                    // Se non abbiamo ancora questo sensore, inizializzalo
+                    if (!latestState[sid]) {
+                        latestState[sid] = {
+                            metrics: {}
+                        };
+                    }
+                    
+                    // Aggiorna i dati generali
+                    latestState[sid].timestamp = data.timestamp;
+                    latestState[sid].status = data.status;
+                    latestState[sid].source_protocol = data.source_protocol;
+                    
+                    // Aggiorna/Aggiungi questa specifica metrica
+                    // (Ricorda che l'ingestion emette eventi separati per ogni metrica dello stesso sensore)
+                    if (data.metric) {
+                        latestState[sid].metrics[data.metric] = {
+                            value: data.value,
+                            unit: data.unit
+                        };
+                    }
+                    
+                    // Ridisegna la UI
+                    renderDashboard();
+                } catch(e) {
+                    console.error("Errore parsing:", e, event.data);
+                }
+            };
+        </script>
+    </body>
+</html>

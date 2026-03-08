@@ -23,7 +23,7 @@ async def publish_message(message_dict: dict):
     connection = await get_connection()
     async with connection:
         channel = await connection.channel()
-        exchange = await channel.declare_exchange(EXCHANGE_NAME, aio_pika.ExchangeType.FANOUT)
+        exchange = await channel.declare_exchange(EXCHANGE_NAME, aio_pika.ExchangeType.FANOUT, durable=True)
         
         message = aio_pika.Message(
             body=json.dumps(message_dict).encode(),
@@ -53,6 +53,35 @@ async def send_insert_rule(sensor_name: str, operator: str, value: float, actuat
     }
     await publish_message(event)
 
+async def receive_rules_stream():
+    """
+    Async generator che ascolta i messaggi sull'exchange 'rules_management'.
+    Produce l'elenco delle regole ogni volta che riceve un aggiornamento.
+    """
+    while True:
+        try:
+            connection = await aio_pika.connect_robust(
+                f"amqp://{RABBITMQ_USER}:{RABBITMQ_PASS}@{RABBITMQ_HOST}/"
+            )
+            async with connection:
+                channel = await connection.channel()
+                exchange = await channel.declare_exchange(EXCHANGE_NAME, aio_pika.ExchangeType.FANOUT, durable=True)
+                
+                queue = await channel.declare_queue(exclusive=True)
+                await queue.bind(exchange)
+                
+                async with queue.iterator() as queue_iter:
+                    yield "online" # Segnaliamo che siamo connessi al broker
+                    async for message in queue_iter:
+                        async with message.process():
+                            payload = json.loads(message.body.decode())
+                            if "rules" in payload:
+                                yield payload["rules"]
+        except Exception as e:
+            print(f"Errore stream rules_management: {e}")
+            yield "offline"
+            await asyncio.sleep(5)
+
 async def receive_rules_events():
     """
     Ascolta i messaggi sull'exchange 'rules_management'.
@@ -64,7 +93,7 @@ async def receive_rules_events():
             connection = await get_connection()
             async with connection:
                 channel = await connection.channel()
-                exchange = await channel.declare_exchange(EXCHANGE_NAME, aio_pika.ExchangeType.FANOUT)
+                exchange = await channel.declare_exchange(EXCHANGE_NAME, aio_pika.ExchangeType.FANOUT, durable=True)
                 
                 # Coda temporanea esclusiva per ricevere l'elenco delle regole broadcasted
                 queue = await channel.declare_queue(exclusive=True)

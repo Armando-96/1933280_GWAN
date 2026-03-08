@@ -221,7 +221,7 @@
             background-color: #ff9800;
         }
 
-        input:checked + .slider:before {
+        input:checked+.slider:before {
             transform: translateX(20px);
         }
 
@@ -237,7 +237,7 @@
         .filter-pill {
             display: flex;
             align-items: center;
-            background: rgba(255,255,255,0.05);
+            background: rgba(255, 255, 255, 0.05);
             padding: 4px 10px;
             border-radius: 20px;
             cursor: pointer;
@@ -246,7 +246,7 @@
         }
 
         .filter-pill:hover {
-            background: rgba(255,255,255,0.1);
+            background: rgba(255, 255, 255, 0.1);
         }
 
         .filter-pill.active {
@@ -254,13 +254,92 @@
             color: #f44336;
             border: 1px solid rgba(244, 67, 54, 0.3);
         }
+
+        /* Automation Form Styling */
+        .automation-form {
+            background: rgba(255, 255, 255, 0.03);
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .form-group {
+            margin-bottom: 12px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.8em;
+            color: #888;
+            margin-bottom: 4px;
+        }
+
+        .form-group select,
+        .form-group input {
+            width: 100%;
+            padding: 8px;
+            background: #121212;
+            border: 1px solid #444;
+            color: white;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        .btn-send {
+            width: 100%;
+            padding: 10px;
+            background: #e91e63;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .btn-send:hover {
+            background: #c2185b;
+        }
+
+        .rules-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85em;
+            margin-top: 10px;
+        }
+
+        .rules-table th,
+        .rules-table td {
+            text-align: left;
+            padding: 8px;
+            border-bottom: 1px solid #333;
+        }
+
+        .rules-table th {
+            color: #888;
+        }
+
+        .btn-delete {
+            background: #cf6679;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8em;
+        }
     </style>
 </head>
 
 <body>
     <header>
         <h1>MARS Habitat IoT Dashboard</h1>
-        <div id="status" class="connect-status">Connecting to Server...</div>
+        <div style="display: flex; justify-content: center; gap: 10px; margin-bottom: 20px;">
+            <div id="status" class="connect-status">Connecting to Server...</div>
+            <div id="broker-status" class="connect-status" style="background: rgba(255,255,255,0.05); color: #888;">
+                Broker: Initializing...</div>
+        </div>
     </header>
 
     <div class="dashboard-container" id="dashboard">
@@ -315,6 +394,12 @@
             "TELEMETRY": false
         };
 
+        // Elenco delle regole attive
+        let activeRules = [];
+
+        // Riferimento persistente al card delle automazioni per evitare reset al refresh (User Story 18/Form persistence fix)
+        let persistentAutomationCard = null;
+
         const ws = new WebSocket("ws://" + location.host + "/ws");
         const statusDiv = document.getElementById('status');
 
@@ -336,7 +421,6 @@
         function showNotification(message) {
             const container = document.getElementById('notification-container');
 
-            // Se ci sono più di 5 notifiche, rimuovi la più vecchia
             if (container.children.length >= 5) {
                 container.removeChild(container.firstChild);
             }
@@ -344,10 +428,8 @@
             const toast = document.createElement('div');
             toast.className = 'notification';
             toast.innerHTML = `<span>${message}</span>`;
-
             container.appendChild(toast);
 
-            // Rimuovi dopo 3 secondi
             setTimeout(() => {
                 toast.classList.add('fade-out');
                 setTimeout(() => {
@@ -356,6 +438,124 @@
                     }
                 }, 300);
             }, 3000);
+        }
+
+        function renderAutomationForm(container, color) {
+            container.innerHTML = `
+                <h3 class="category-title" style="color:${color}">Automation Rules</h3>
+                <div class="automation-form">
+                    <h4>Create New Rule</h4>
+                    <div class="form-group">
+                        <label>Trigger Sensor</label>
+                        <select id="rule-sensor">
+                            <option value="">Select Sensor...</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <div class="form-group" style="flex:1;">
+                            <label>Operator</label>
+                            <select id="rule-operator">
+                                <option value="<">&lt; (Less than)</option>
+                                <option value=">">&gt; (Greater than)</option>
+                                <option value="==">== (Equal to)</option>
+                                <option value="<=">&le; (Less or equal)</option>
+                                <option value=">=">&ge; (Greater or equal)</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="flex:1;">
+                            <label>Threshold Value</label>
+                            <input type="number" id="rule-value" step="0.1" placeholder="Value...">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Target Actuator</label>
+                        <select id="rule-actuator">
+                            <option value="">Select Actuator...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Action</label>
+                        <select id="rule-action">
+                            <option value="1">Turn ON</option>
+                            <option value="0">Turn OFF</option>
+                        </select>
+                    </div>
+                    <button class="btn-send" onclick="submitRule()">SEND RULE</button>
+                </div>
+                <div id="active-rules-list" style="margin-top:20px;">
+                    <h4>Active Rules</h4>
+                    <div id="rules-table-container"></div>
+                </div>
+            `;
+            // Popoliamo subito i dropdown dopo la creazione
+            updateAutomationDropdowns();
+        }
+
+        function updateAutomationDropdowns() {
+            const sensorSelect = document.getElementById('rule-sensor');
+            const actuatorSelect = document.getElementById('rule-actuator');
+            if (!sensorSelect || !actuatorSelect) return;
+
+            const availableSensors = Object.keys(latestState).filter(id => {
+                const p = latestState[id].source_protocol;
+                return p === "REST" || !p; // Default to REST if missing
+            }).sort();
+            const availableActuators = Object.keys(latestState).filter(id => latestState[id].source_protocol === "ACTUATORS").sort();
+
+            function syncOptions(selectElement, availableIds) {
+                const currentSelection = selectElement.value;
+                const existingIds = Array.from(selectElement.options).map(opt => opt.value).filter(val => val !== "");
+                
+                // Se la lista è identica, non facciamo nulla per preservare lo stato del DOM (e il focus/selezione)
+                if (JSON.stringify(existingIds) === JSON.stringify(availableIds)) return;
+
+                // Altrimenti, aggiorniamo ma proviamo a preservare la selezione manuale se ancora valida
+                let html = '<option value="">Select...</option>';
+                availableIds.forEach(id => {
+                    const selected = id === currentSelection ? 'selected' : '';
+                    html += `<option value="${id}" ${selected}>${id.replace(/_/g, ' ').toUpperCase()}</option>`;
+                });
+                selectElement.innerHTML = html;
+            }
+
+            syncOptions(sensorSelect, availableSensors);
+            syncOptions(actuatorSelect, availableActuators);
+        }
+
+        function updateActiveRulesList() {
+            const container = document.getElementById('rules-table-container');
+            if (!container) return;
+
+            const tbodyContent = activeRules.length === 0 
+                ? '<tr><td colspan="6" style="text-align:center; color:#888; font-style:italic; padding: 20px;">No active rules.</td></tr>'
+                : activeRules.map(r => `
+                    <tr>
+                        <td>${r.id}</td>
+                        <td>${r.sensor_name || r.sensor_id}</td>
+                        <td>${r.operator} ${r.value}</td>
+                        <td>${r.actuator_name || r.actuator_id}</td>
+                        <td style="color:${r.On_off || r.on_off ? '#ff9800' : '#888'}">${r.On_off || r.on_off ? 'ON' : 'OFF'}</td>
+                        <td><button class="btn-delete" onclick="deleteRule(${r.id})">DEL</button></td>
+                    </tr>
+                `).join('');
+
+            container.innerHTML = `
+                <table class="rules-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Trigger</th>
+                            <th>Cond.</th>
+                            <th>Target</th>
+                            <th>Action</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tbodyContent}
+                    </tbody>
+                </table>
+            `;
         }
 
         async function setActuatorState(name, newState) {
@@ -386,6 +586,56 @@
             }
         }
 
+        async function submitRule() {
+            const sensor = document.getElementById('rule-sensor').value;
+            const operator = document.getElementById('rule-operator').value;
+            const value = parseFloat(document.getElementById('rule-value').value);
+            const actuator = document.getElementById('rule-actuator').value;
+            const action = parseInt(document.getElementById('rule-action').value);
+
+            if (!sensor || isNaN(value) || !actuator) {
+                showNotification("⚠️ Please fill all fields correctly.");
+                return;
+            }
+
+            try {
+                const response = await fetch('/rules', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sensor_name: sensor,
+                        operator: operator,
+                        value: value,
+                        actuator_name: actuator,
+                        on_off: action
+                    })
+                });
+                const result = await response.json();
+                if (result.status) {
+                    showNotification("✅ Rule deployment requested!");
+                    document.getElementById('rule-value').value = '';
+                } else {
+                    showNotification(`❌ Error: ${result.error}`);
+                }
+            } catch (e) {
+                showNotification(`❌ Fetch error: ${e.message}`);
+            }
+        }
+
+        async function deleteRule(id) {
+            try {
+                const response = await fetch(`/rules/${id}`, { method: 'DELETE' });
+                const result = await response.json();
+                if (result.status) {
+                    showNotification("🗑️ Rule deletion requested!");
+                } else {
+                    showNotification(`❌ Error: ${result.error}`);
+                }
+            } catch (e) {
+                showNotification(`❌ Fetch error: ${e.message}`);
+            }
+        }
+
         function getCategoryForSensor(sensorId) {
             // 1. Controllo esatto (Sensori REST statici)
             for (const [category, sensors] of Object.entries(CATEGORIES)) {
@@ -412,7 +662,7 @@
 
         function renderDashboard() {
             const container = document.getElementById('dashboard');
-            container.innerHTML = ''; // Clear
+            // Invece di pulire tutto, gestiamo i macro-wrappers in modo persistente
 
             // Macro-categories requested by the user
             const MACRO_GROUPS = {
@@ -462,51 +712,69 @@
                 const protocolData = organizedData[proto];
                 if (!protocolData || Object.keys(protocolData).length === 0) continue;
 
-                // Container for the macro-category (full width wrapper)
-                const macroWrapper = document.createElement('div');
-                macroWrapper.style.width = '100%';
-                macroWrapper.style.marginBottom = '40px';
+                // Cerchiamo se il wrapper per questa macro esiste già
+                let macroWrapper = document.getElementById(`macro-wrapper-${proto}`);
+                let macroContainer;
 
-                // Macro Header with title and optional controls
-                const macroHeader = document.createElement('div');
-                macroHeader.className = 'macro-header';
-                macroHeader.style.backgroundColor = macroInfo.color;
-                macroHeader.style.display = 'flex';
-                macroHeader.style.justifyContent = 'space-between';
-                macroHeader.style.alignItems = 'center';
-                macroHeader.style.padding = '8px 15px';
-                macroHeader.style.borderRadius = '8px 8px 0 0';
-                macroHeader.style.color = 'white';
-                macroHeader.style.fontWeight = 'bold';
+                if (!macroWrapper) {
+                    macroWrapper = document.createElement('div');
+                    macroWrapper.id = `macro-wrapper-${proto}`;
+                    macroWrapper.style.width = '100%';
+                    macroWrapper.style.marginBottom = '40px';
 
-                const titleSpan = document.createElement('span');
-                titleSpan.innerText = macroInfo.title;
-                macroHeader.appendChild(titleSpan);
+                    const macroHeader = document.createElement('div');
+                    macroHeader.className = 'macro-header';
+                    macroHeader.style.backgroundColor = macroInfo.color;
+                    macroHeader.style.display = 'flex';
+                    macroHeader.style.justifyContent = 'space-between';
+                    macroHeader.style.alignItems = 'center';
+                    macroHeader.style.padding = '8px 15px';
+                    macroHeader.style.borderRadius = '8px 8px 0 0';
+                    macroHeader.style.color = 'white';
+                    macroHeader.style.fontWeight = 'bold';
 
-                // Add filter controls for SENSORS (REST) and TELEMETRY
+                    const titleSpan = document.createElement('span');
+                    titleSpan.innerText = macroInfo.title;
+                    macroHeader.appendChild(titleSpan);
+
+                    if (proto === "REST" || proto === "TELEMETRY") {
+                        const controls = document.createElement('div');
+                        controls.id = `controls-${proto}`;
+                        controls.className = 'header-controls';
+                        macroHeader.appendChild(controls);
+                    }
+
+                    macroWrapper.appendChild(macroHeader);
+
+                    macroContainer = document.createElement('div');
+                    macroContainer.id = `macro-container-${proto}`;
+                    macroContainer.className = 'dashboard-container';
+                    macroContainer.style.border = `2px solid ${macroInfo.color}`;
+                    macroContainer.style.borderTop = 'none';
+                    macroContainer.style.borderRadius = '0 0 8px 8px';
+                    macroContainer.style.padding = '20px';
+                    macroWrapper.appendChild(macroContainer);
+
+                    container.appendChild(macroWrapper);
+                } else {
+                    macroContainer = document.getElementById(`macro-container-${proto}`);
+                }
+
+                // Aggiorniamo i controlli (filtro) nel header
                 if (proto === "REST" || proto === "TELEMETRY") {
-                    const controls = document.createElement('div');
-                    controls.className = 'header-controls';
-                    
+                    const controls = document.getElementById(`controls-${proto}`);
                     const isActive = sectionFilters[proto];
                     controls.innerHTML = `
                         <div class="filter-pill ${isActive ? 'active' : ''}" onclick="event.stopPropagation(); toggleSectionFilter('${proto}')">
                             ${isActive ? '● Warning Only' : '○ All Status'}
                         </div>
                     `;
-                    macroHeader.appendChild(controls);
                 }
 
-                macroWrapper.appendChild(macroHeader);
-
-                // Container for the sub-categories (the actual dashboard-container grid)
-                const macroContainer = document.createElement('div');
-                macroContainer.className = 'dashboard-container';
-                macroContainer.style.border = `2px solid ${macroInfo.color}`;
-                macroContainer.style.borderTop = 'none';
-                macroContainer.style.borderRadius = '0 0 8px 8px';
-                macroContainer.style.padding = '20px';
-                macroWrapper.appendChild(macroContainer);
+                // Puliamo il contenuto dinamico (le sottocategorie), ma PRESERVIAMO il form se è OPERATIONS
+                // Per fare questo, separiamo le sottocategorie in un container dedicato o le puliamo selettivamente
+                const existingSubCategories = Array.from(macroContainer.children).filter(child => child.className === 'category-section' && child.id !== 'automation-rules-container');
+                existingSubCategories.forEach(child => macroContainer.removeChild(child));
 
                 let hasVisibleCardsInMacro = false;
 
@@ -528,11 +796,7 @@
 
                     let cardsInCategory = 0;
                     for (const [sensorId, sensorObj] of Object.entries(sensors)) {
-                        // Warning Filter logic (User Story 18)
-                        if (sectionFilters[proto] && sensorObj.status !== "warning") {
-                            continue;
-                        }
-
+                        if (sectionFilters[proto] && sensorObj.status !== "warning") continue;
                         if (Object.keys(sensorObj.metrics).length === 0) continue;
 
                         cardsInCategory++;
@@ -549,7 +813,6 @@
                         }
 
                         const timeStr = new Date(sensorObj.timestamp).toLocaleTimeString();
-
                         let html = `
                             <div class="sensor-header">
                                 <span class="sensor-name">${sensorId.replace(/_/g, ' ').toUpperCase()}</span>
@@ -559,11 +822,9 @@
 
                         for (const [metricName, metricData] of Object.entries(sensorObj.metrics).sort()) {
                             let displayVal = metricData.value;
-                            if (typeof displayVal === 'number' && !Number.isInteger(displayVal)) {
-                                displayVal = displayVal.toFixed(2);
-                            }
-
+                            if (typeof displayVal === 'number' && !Number.isInteger(displayVal)) displayVal = displayVal.toFixed(2);
                             let valueHtml = `${displayVal} <span style="font-size:0.75em; color:#888;">${metricData.unit || ''}</span>`;
+                            
                             if (proto === "OPERATIONS") {
                                 const isChecked = displayVal === "ON" ? "checked" : "";
                                 valueHtml = `
@@ -583,12 +844,7 @@
                             `;
                         }
 
-                        html += `
-                            <div class="footer-info">
-                                <span>last update: ${timeStr}</span>
-                            </div>
-                        `;
-
+                        html += `<div class="footer-info"><span>last update: ${timeStr}</span></div>`;
                         card.innerHTML = html;
                         grid.appendChild(card);
                     }
@@ -598,24 +854,70 @@
                     }
                 }
 
-                // User Story 18 Fix: Always show the section if it has data, but notify if filtered out everything
-                if (sectionFilters[proto] && !hasVisibleCardsInMacro) {
-                    const emptyMsg = document.createElement('div');
-                    emptyMsg.style.padding = '20px';
-                    emptyMsg.style.textAlign = 'center';
-                    emptyMsg.style.color = '#888';
-                    emptyMsg.style.fontStyle = 'italic';
-                    emptyMsg.innerText = 'No sensors currently in WARNING status.';
-                    macroContainer.appendChild(emptyMsg);
+                // Iniezione del Form Automazione nella SEZIONE MACRO OPERATIONS
+                if (proto === "OPERATIONS") {
+                    if (!persistentAutomationCard) {
+                        persistentAutomationCard = document.createElement('div');
+                        persistentAutomationCard.id = 'automation-rules-container';
+                        persistentAutomationCard.className = 'category-section';
+                        persistentAutomationCard.style.borderColor = macroInfo.color;
+                        persistentAutomationCard.style.flex = "1 1 100%";
+                        renderAutomationForm(persistentAutomationCard, macroInfo.color);
+                    }
+                    if (persistentAutomationCard.parentNode !== macroContainer) {
+                        macroContainer.appendChild(persistentAutomationCard);
+                    }
+                    updateAutomationDropdowns();
+                    updateActiveRulesList();
                 }
 
-                container.appendChild(macroWrapper);
+                // Gestione messaggio vuoto per filtri
+                let emptyMsg = document.getElementById(`empty-msg-${proto}`);
+                if (sectionFilters[proto] && !hasVisibleCardsInMacro) {
+                    if (!emptyMsg) {
+                        emptyMsg = document.createElement('div');
+                        emptyMsg.id = `empty-msg-${proto}`;
+                        emptyMsg.style.padding = '20px';
+                        emptyMsg.style.textAlign = 'center';
+                        emptyMsg.style.color = '#888';
+                        emptyMsg.style.fontStyle = 'italic';
+                        emptyMsg.innerText = 'No sensors currently in WARNING status.';
+                        macroContainer.appendChild(emptyMsg);
+                    }
+                } else if (emptyMsg) {
+                    macroContainer.removeChild(emptyMsg);
+                }
             }
         }
 
         ws.onmessage = function (event) {
             try {
                 const data = JSON.parse(event.data);
+
+                // Gestione aggiornamento regole (nuovo evento dall'Automation Engine)
+                if (data.type === "rules_update") {
+                    console.log("[RuleEngine] Received rules update:", data.rules);
+                    activeRules = data.rules;
+                    renderDashboard();
+                    return;
+                }
+
+                // Gestione stato del Broker (RabbitMQ)
+                if (data.type === "broker_status") {
+                    const brokerDiv = document.getElementById('broker-status');
+                    if (data.status === "online") {
+                        brokerDiv.innerText = "Broker: Online";
+                        brokerDiv.style.color = "#03dac6";
+                        brokerDiv.classList.remove('offline');
+                    } else {
+                        brokerDiv.innerText = "Broker: OFFLINE";
+                        brokerDiv.style.color = "#f44336";
+                        brokerDiv.classList.add('offline');
+                        showNotification(`⚠️ BROKER DISCONNECTED (${data.source})`);
+                    }
+                    return;
+                }
+
                 const sid = data.sensor_id;
 
                 // Filtro per visualizzare solo le metriche richieste nella Use Story per il Solar Array

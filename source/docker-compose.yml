@@ -59,3 +59,23 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+  
+  # 5. IL DATABASE POSTGRESQL 
+  db:
+    image: postgres:latest  
+    container_name: postgres_db
+    restart: always
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=mars
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql
+
+
+volumes:
+  postgres_data:
+  

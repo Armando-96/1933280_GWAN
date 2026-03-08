@@ -6,7 +6,7 @@ services:
     ports:
       - "8080:8080"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/health" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -23,7 +23,7 @@ services:
       - RABBITMQ_DEFAULT_PASS=admin
     healthcheck:
       # Sostituiamo "q" con "ping" (molto più sicuro)
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      test: [ "CMD", "rabbitmq-diagnostics", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -31,7 +31,7 @@ services:
   # 3. IL SERVIZIO DI INGESTIONE (Quello che abbiamo appena scritto)
   ingestion:
     build:
-      context: ./ingestion  # Cerca il Dockerfile in questa cartella
+      context: ./ingestion # Cerca il Dockerfile in questa cartella
     container_name: mars_ingestion
     environment:
       - RABBITMQ_HOST=rabbitmq

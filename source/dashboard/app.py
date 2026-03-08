@@ -14,10 +14,7 @@ EXCHANGE_NAME = "mars_events"
 
 app = FastAPI()
 
-# Montiamo la cartella static alla radice '/' per servire index.html 
-# e qualsiasi altro file (CSS, JS) che aggiungeremo in futuro.
-app.mount("/", StaticFiles(directory="static", html=True), name="static")
-
+# app.mount("/", ... removed from here to fix WS conflict
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
@@ -47,6 +44,10 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+
+# Montiamo la cartella static DOPO aver definito le altre rotte
+# altrimenti FastAPI intercetta la richiesta WebSocket e pensa sia una richiesta HTTP statica.
+app.mount("/", StaticFiles(directory="static", html=True), name="static")
 
 async def consume_rabbitmq():
     # Aspettiamo qualche secondo per assicurarci che RabbitMQ sia pronto al boot

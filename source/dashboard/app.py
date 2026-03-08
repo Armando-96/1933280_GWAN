@@ -6,6 +6,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 import aio_pika
 import httpx
+from rules_manager import send_delete_rule, send_insert_rule, receive_rules_events
 
 from fastapi.staticfiles import StaticFiles
 

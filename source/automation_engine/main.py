@@ -234,14 +234,40 @@ async def _handle_rules_event(raw_body: bytes, db_conn, exchange):
         return
 
     print(f"⚠️ [RULES MGR] Unrecognised message, ignoring: {payload}")
+    
+async def rules_broadcast_loop(db_conn):
+    amqp_url = f"amqp://{RABBITMQ_USER}:{RABBITMQ_PASS}@{RABBITMQ_HOST}/"
+    while True:
+        try:
+            connection = await aio_pika.connect_robust(amqp_url)
+            async with connection:
+                channel = await connection.channel()
+                exchange = await channel.declare_exchange(
+                    EXCHANGE_NAME, aio_pika.ExchangeType.FANOUT, durable=True
+                )
+                while True:
+                    rules = db_fetch_all_rules(db_conn)
+                    await exchange.publish(
+                        aio_pika.Message(
+                            body=json.dumps({"rules": rules}).encode(),
+                            delivery_mode=aio_pika.DeliveryMode.PERSISTENT
+                        ),
+                        routing_key=""
+                    )
+                    print(f"📤 [RULES MGR] Broadcast {len(rules)} rules.")
+                    await asyncio.sleep(5)
+        except Exception as e:
+            print(f"⚠️ [RULES MGR] Broadcast error: {e}. Retry in 5s...")
+            await asyncio.sleep(5)
 
 
 def start_rules_listener_thread(db_conn):
-    """Run the async rules-management listener in a dedicated daemon thread."""
     def _run():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(rules_management_listener(db_conn))
+        loop.create_task(rules_management_listener(db_conn))
+        loop.create_task(rules_broadcast_loop(db_conn))
+        loop.run_forever()
 
     t = threading.Thread(target=_run, daemon=True, name="rules-mgr-listener")
     t.start()

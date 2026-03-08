@@ -84,10 +84,9 @@ def process_message(ch, method, properties, body, db_conn):
 def main():
     db_conn = connect_db()
 
-    # CONNESSIONE A RABBITMQ CON CREDENZIALI FORZATE
+    # CONNESSIONE A RABBITMQ CON CREDENZIALI FORZATE E BINDING
     while True:
         try:
-            # Qui diciamo a pika di usare admin/admin!
             credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
             parameters = pika.ConnectionParameters(
                 host=RABBITMQ_HOST, 
@@ -96,14 +95,20 @@ def main():
             connection = pika.BlockingConnection(parameters)
             channel = connection.channel()
             
+            # 1. Dichiara la tua coda fissa (come prima)
             channel.queue_declare(queue=QUEUE_NAME, durable=True)
-            print(f"✅ Successfully connected to RabbitMQ! Listening on queue '{QUEUE_NAME}'...")
+            
+            # ---> 2. AGGIUNGI QUESTA RIGA: Collega la tua coda all'Exchange! <---
+            # Sostituisci 'NOME_DEL_TUO_EXCHANGE' con quello che hai trovato al Passo 1.
+            # Se la Routing Key nel passo 1 era vuota o diversa, metti '#' (che significa "ascolta tutto")
+            channel.queue_bind(exchange='mars_events', queue=QUEUE_NAME, routing_key='#')
+            
+            print(f"✅ Connesso a RabbitMQ! Coda '{QUEUE_NAME}' collegata all'Exchange...")
             break
         except pika.exceptions.AMQPConnectionError as e:
-            # Ora se fallisce stampa il VERO ERRORE
             print(f"⏳ Waiting for RabbitMQ broker... Error: {e}")
             time.sleep(3)
-
+            
     on_message_callback = lambda ch, method, properties, body: process_message(ch, method, properties, body, db_conn)
 
     channel.basic_qos(prefetch_count=1)

@@ -345,8 +345,6 @@
         <h1>MARS Habitat IoT Dashboard</h1>
         <div style="display: flex; justify-content: center; gap: 10px; margin-bottom: 20px;">
             <div id="status" class="connect-status">Connecting to Server...</div>
-            <div id="broker-status" class="connect-status" style="background: rgba(255,255,255,0.05); color: #888;">
-                Broker: Initializing...</div>
         </div>
     </header>
 
@@ -471,8 +469,11 @@
                             </select>
                         </div>
                         <div class="form-group" style="flex:1;">
-                            <label>Threshold Value</label>
-                            <input type="number" id="rule-value" step="0.1" placeholder="Value...">
+                            <label id="rule-value-label">Threshold Value</label>
+                            <div style="display:flex; align-items:center; gap:5px;">
+                                <input type="number" id="rule-value" step="0.1" placeholder="Value..." style="flex:1;">
+                                <span id="rule-unit" style="font-weight:bold; color:#888; font-size:0.9em;"></span>
+                            </div>
                         </div>
                     </div>
                     <div class="form-group">
@@ -497,6 +498,30 @@
             `;
             // Popoliamo subito i dropdown dopo la creazione
             updateAutomationDropdowns();
+
+            // Aggiungiamo listener per aggiornare l'unità di misura
+            const sensorSelect = document.getElementById('rule-sensor');
+            if (sensorSelect) {
+                sensorSelect.addEventListener('change', updateRuleUnit);
+            }
+        }
+
+        function updateRuleUnit() {
+            const sensorId = document.getElementById('rule-sensor').value;
+            const unitSpan = document.getElementById('rule-unit');
+            const label = document.getElementById('rule-value-label');
+            if (!unitSpan || !label) return;
+
+            if (sensorId && latestState[sensorId]) {
+                const metrics = latestState[sensorId].metrics;
+                const units = Object.values(metrics).map(m => m.unit).filter(u => u);
+                const unit = units.length > 0 ? units[0] : "";
+                unitSpan.innerText = unit;
+                label.innerText = unit ? `Threshold Value (${unit})` : "Threshold Value";
+            } else {
+                unitSpan.innerText = "";
+                label.innerText = "Threshold Value";
+            }
         }
 
         function updateAutomationDropdowns() {
@@ -528,6 +553,9 @@
 
             syncOptions(sensorSelect, availableSensors);
             syncOptions(actuatorSelect, availableActuators);
+
+            // Assicuriamoci che l'etichetta dell'unità sia aggiornata dopo il popolamento
+            updateRuleUnit();
         }
 
         function updateActiveRulesList() {
@@ -911,17 +939,9 @@
                     return;
                 }
 
-                // Gestione stato del Broker (RabbitMQ)
+                // Gestione stato del Broker (RabbitMQ) - NOTA: UI rimosso su richiesta utente
                 if (data.type === "broker_status") {
-                    const brokerDiv = document.getElementById('broker-status');
-                    if (data.status === "online") {
-                        brokerDiv.innerText = "Broker: Online";
-                        brokerDiv.style.color = "#03dac6";
-                        brokerDiv.classList.remove('offline');
-                    } else {
-                        brokerDiv.innerText = "Broker: OFFLINE";
-                        brokerDiv.style.color = "#f44336";
-                        brokerDiv.classList.add('offline');
+                    if (data.status !== "online") {
                         showNotification(`⚠️ BROKER DISCONNECTED (${data.source})`);
                     }
                     return;
@@ -950,20 +970,20 @@
 
                 // Aggiorna/Aggiungi questa specifica metrica
                 // (Ricorda che l'ingestion emette eventi separati per ogni metrica dello stesso sensore)
-                if (data.metric) {
-                    // Logica Notifiche Actuators (User Story 12)
-                    if (data.source_protocol === "ACTUATORS" && data.metric === "state") {
-                        const oldVal = latestState[sid].metrics["state"] ? latestState[sid].metrics["state"].value : null;
-                        if (oldVal !== null && oldVal !== data.value) {
-                            showNotification(`Actuator <b>${sid.toUpperCase()}</b> changed to <b>${data.value}</b>`);
-                        }
-                    }
+                const metricName = data.metric || "value";
 
-                    latestState[sid].metrics[data.metric] = {
-                        value: data.value,
-                        unit: data.unit
-                    };
+                // Logica Notifiche Actuators (User Story 12)
+                if (data.source_protocol === "ACTUATORS" && metricName === "state") {
+                    const oldVal = latestState[sid].metrics["state"] ? latestState[sid].metrics["state"].value : null;
+                    if (oldVal !== null && oldVal !== data.value) {
+                        showNotification(`Actuator <b>${sid.toUpperCase()}</b> changed to <b>${data.value}</b>`);
+                    }
                 }
+
+                latestState[sid].metrics[metricName] = {
+                    value: data.value,
+                    unit: data.unit
+                };
 
                 // Ridisegna la UI
                 renderDashboard();

@@ -1,5 +1,9 @@
 # SYSTEM DESCRIPTION:
 
+The Mars IoT Platform is a distributed automation system designed to ensure the survival of astronauts in a Martian habitat. It collects data from a heterogeneous set of sensors (via REST polling and asynchronous Telemetry streams), normalizes this data into a unified internal event schema, and routes it through an event-driven architecture using RabbitMQ. 
+
+The system features an Automation Engine that evaluates active rules against incoming sensor data to automatically trigger life-support actuators, and a web-based Dashboard that allows Mars Operators and Habitat Engineers to monitor real-time metrics, manually control actuators, and manage the automation rules.
+
 ## USER STORIES:
 
 ### Real-Time Monitoring & Telemetry

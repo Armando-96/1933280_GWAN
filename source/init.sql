@@ -39,6 +39,7 @@ INSERT INTO operators (symbol) VALUES
     ('<'),
     ('<='),
     ('='),
+    ('=='),
     ('>'),
     ('>=');
 
